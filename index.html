@@ -99,12 +99,22 @@
       <div><div class="text-xs text-slate-400 font-bold mb-1">GOOGLE CALENDAR SYNC</div><div class="flex flex-wrap items-center gap-3"><h2 class="font-extrabold text-lg">Google · 삼성 캘린더 연동</h2><span id="syncStatus" class="sync-status">연결되지 않음</span></div></div>
       <div class="flex gap-2 flex-wrap"><button id="syncNow" class="secondary" disabled>↻ 지금 동기화</button><button id="googleConnect" class="primary">Google 연결</button><button id="googleDisconnect" class="secondary" style="display:none">연결 해제</button></div>
     </div>
-    <p id="syncNote" class="hint mt-2">설정에서 OAuth 클라이언트 ID를 입력하고 Google 계정에 연결하세요. 연결 전 일정은 기기에만 저장됩니다.</p>
+    <p id="syncNote" class="hint mt-2">설정에서 OAuth 클라이언트 ID를 입력하고 Google 계정에 연결하세요. Google 캘린더를 지정하면 앞으로 추가하는 일정은 Google에 직접 저장됩니다. 기존 일정은 별도 이전 버튼으로 옮겨주세요.</p>
     <details class="mt-3" id="syncSettings"><summary class="text-sm font-bold text-slate-600 cursor-pointer">⚙ 연동 설정 · 가족별 캘린더 지정</summary>
       <div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mt-4 items-end"><div><label for="oauthClientId">Google OAuth 클라이언트 ID (웹 애플리케이션)</label><input id="oauthClientId" class="field" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx.apps.googleusercontent.com"/></div><button id="saveClient" class="secondary">ID 저장</button></div>
       <p class="hint mt-2">Google Cloud에서 Calendar API를 활성화하고, 이 페이지의 HTTPS 주소를 OAuth 웹 클라이언트의 승인된 JavaScript 원본에 등록해야 합니다. 클라이언트 보안 비밀값은 입력하지 마세요.</p>
+      <div class="mt-4 p-3 rounded-xl border border-blue-100 bg-blue-50/40">
+        <label for="sharedCalendar">한 개의 Google 캘린더로 가족 모두 관리 (추천)</label>
+        <div class="flex flex-wrap gap-2 items-center"><select id="sharedCalendar" class="field" style="max-width:390px"><option value="">Google 연결 후 선택</option></select><button type="button" id="applyShared" class="secondary" disabled>5개 항목에 일괄 적용</button></div>
+        <p class="hint mt-2">구성원별 이메일이 필요하지 않습니다. 같은 Google 캘린더를 연결해도 일정에 가족별 구분을 기록합니다.</p>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4" id="calendarMappings"></div>
-      <div class="flex flex-wrap items-center gap-2 mt-3"><button id="saveMappings" class="secondary" disabled>가족별 캘린더 연결 저장</button><span class="hint">읽기 전용 또는 접근할 수 없는 캘린더는 일정 수정이 제한됩니다.</span></div>
+      <div class="flex flex-wrap items-center gap-2 mt-3"><button id="saveMappings" class="secondary" disabled>가족별 캘린더 연결 저장</button><span class="hint">읽기 전용 캘린더는 일정 추가·수정이 불가능합니다.</span></div>
+      <div class="mt-4 rounded-xl border border-amber-200 p-3 bg-amber-50/40">
+        <div class="font-bold text-sm mb-1">PC에 저장된 기존 일정 Google로 이전</div>
+        <p class="hint" id="migrationInfo">Google 연결 후 가족별 캘린더를 지정하면 기존 로컬 일정도 이전할 수 있습니다.</p>
+        <div class="flex flex-wrap gap-2 items-center mt-2"><button id="migrateLocal" class="primary" disabled>↑ 기존 일정 Google로 이전</button><span class="hint" id="migrationProgress"></span></div>
+      </div>
     </details>
   </section>
   <section class="surface p-4 md:p-5 mb-5">
@@ -214,26 +224,54 @@
   function saveConfig(){localStorage.setItem(CONF_KEY,JSON.stringify(config))}
   function cloudActive(){return Boolean(googleToken && Date.now()<googleTokenExpiry-60000)}
   function allEvents(){return [...state.events,...cloudEvents]}
+  function mappedWritable(pid){const id=activeCalendar(pid);const c=availableCalendars.find(x=>x.id===id);return Boolean(id&&c&&['owner','writer'].includes(c.accessRole))}
+  function pendingLocal(){return state.events.filter(e=>e&&!e.cloud)}
+  function updateMigrationUI(){const count=pendingLocal().length;const b=$('migrateLocal');if(!b)return;b.disabled=!cloudActive()||!count||syncBusy||migrationBusy;$('migrationInfo').textContent=`현재 브라우저에만 저장된 일정 ${count}건. 먼저 로컬 백업을 권장합니다. Google로 이전한 일정은 로컬에서 제거하며, 큐티 기록은 그대로 둡니다.`;}
+  let migrationBusy=false;
   function activeCalendar(personId){return config.mapping[personId]||''}
-  function cloudWritable(personId){return cloudActive() && Boolean(activeCalendar(personId))}
-  function setSyncStatus(msg,connected=false){$('syncStatus').textContent=msg;$('syncStatus').classList.toggle('connected',connected);$('syncNote').textContent=cloudActive()?'Google 연결됨 · 약 1분 간격 자동 갱신 · 마지막 동기화: '+(lastSync?new Date(lastSync).toLocaleTimeString('ko-KR'):'진행 전'):'연결 전 기존 일정과 큐티는 로컬에 유지됩니다. Google OAuth 웹 클라이언트 ID를 저장하고 연결하세요.';$('syncNow').disabled=!cloudActive();$('googleDisconnect').style.display=googleToken?'inline-block':'none';$('googleConnect').textContent=googleToken?'다시 인증':'Google 연결'}
+  function cloudWritable(personId){return cloudActive() && mappedWritable(personId)}
+  function setSyncStatus(msg,connected=false){$('syncStatus').textContent=msg;$('syncStatus').classList.toggle('connected',connected);$('syncNote').textContent=cloudActive()?'Google 연결됨 · 약 1분 간격 자동 갱신 · 마지막 동기화: '+(lastSync?new Date(lastSync).toLocaleTimeString('ko-KR'):'진행 전'):'연결 전 기존 일정과 큐티는 로컬에 유지됩니다. Google OAuth 웹 클라이언트 ID를 저장하고 연결하세요.';$('syncNow').disabled=!cloudActive();$('googleDisconnect').style.display=googleToken?'inline-block':'none';$('googleConnect').textContent=googleToken?'다시 인증':'Google 연결';updateMigrationUI()}
   function initGoogleClient(){if(!window.google?.accounts?.oauth2)throw Error('Google 로그인 스크립트를 불러올 수 없습니다. 인터넷 연결을 확인하세요.');tokenClient=google.accounts.oauth2.initTokenClient({client_id:config.clientId,scope:SCOPE,callback:async response=>{if(response.error){toast('Google 로그인 실패: '+response.error);return}googleToken=response.access_token;googleTokenExpiry=Date.now()+Number(response.expires_in||3600)*1000;setSyncStatus('연결됨',true);try{await loadCalendarList();await syncGoogle(true);scheduleSync()}catch(err){toast('캘린더 연결 오류: '+err.message);setSyncStatus('조회 오류',true)}}})}
   function connectGoogle(){if(!config.clientId){$('syncSettings').open=true;toast('먼저 OAuth 클라이언트 ID를 입력해 주세요.');return}if(location.protocol==='file:'){toast('Google 로그인은 file:// 에서 사용할 수 없습니다. HTTPS 또는 localhost 주소로 접속하세요.');return}try{initGoogleClient();tokenClient.requestAccessToken({prompt:googleToken?'':'consent'})}catch(err){toast(err.message)}}
   async function googleApi(path,options={}){if(!cloudActive())throw Error('Google 로그인이 만료되었습니다. 다시 연결해 주세요.');const resp=await fetch('https://www.googleapis.com/calendar/v3/'+path,{...options,headers:{Authorization:'Bearer '+googleToken,...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}});if(!resp.ok){let info;try{info=await resp.json()}catch{};if(resp.status===401){googleToken=null;googleTokenExpiry=0;setSyncStatus('인증 만료')}throw Error(info?.error?.message||'Google API 응답 '+resp.status)}return resp.status===204?{}:resp.json()}
   async function loadCalendarList(){const collected=[];let page='';do{const r=await googleApi('users/me/calendarList?maxResults=250'+(page?'&pageToken='+encodeURIComponent(page):''));collected.push(...(r.items||[]));page=r.nextPageToken||''}while(page);availableCalendars=collected;renderMappings()}
-  function renderMappings(){const opts='<option value="">— 로컬에만 저장 / 미연결 —</option>'+availableCalendars.map(c=>`<option value="${esc(c.id)}">${esc(c.summary)}${['reader','freeBusyReader'].includes(c.accessRole)?' (읽기 전용)':''}</option>`).join('');$('calendarMappings').innerHTML=PEOPLE.map(p=>`<div><label for="map-${p.id}"><span class="dot" style="background:${p.color}"></span> ${p.name}</label><select class="field" id="map-${p.id}">${opts}</select></div>`).join('');PEOPLE.forEach(p=>{$('map-'+p.id).value=config.mapping[p.id]||''});$('saveMappings').disabled=!cloudActive()}
-  function saveMappings(){const mapping={};PEOPLE.forEach(p=>mapping[p.id]=$('map-'+p.id).value);const vals=Object.values(mapping).filter(Boolean);if(new Set(vals).size!==vals.length){toast('하나의 Google 캘린더는 한 가족 항목에만 연결해 주세요.');return}config.mapping=mapping;saveConfig();syncGoogle(true).then(()=>toast('가족별 캘린더 연결을 저장했습니다.')).catch(e=>toast(e.message))}
+  function renderMappings(){const opts='<option value="">— 로컬에만 저장 / 미연결 —</option>'+availableCalendars.map(c=>`<option value="${esc(c.id)}">${esc(c.summary)}${['reader','freeBusyReader'].includes(c.accessRole)?' (읽기 전용)':''}</option>`).join('');$('calendarMappings').innerHTML=PEOPLE.map(p=>`<div><label for="map-${p.id}"><span class="dot" style="background:${p.color}"></span> ${p.name}</label><select class="field" id="map-${p.id}">${opts}</select></div>`).join('');PEOPLE.forEach(p=>{$('map-'+p.id).value=config.mapping[p.id]||''});$('sharedCalendar').innerHTML=opts;$('sharedCalendar').value=config.mapping.family||'';$('saveMappings').disabled=!cloudActive();$('applyShared').disabled=!cloudActive();updateMigrationUI()}
+  function saveMappings(){const mapping={};PEOPLE.forEach(p=>mapping[p.id]=$('map-'+p.id).value);config.mapping=mapping;saveConfig();syncGoogle(true).then(()=>{toast('캘린더 연결을 저장했습니다.');updateMigrationUI()}).catch(e=>toast(e.message))}
   function dateAtSeoul(iso){return new Date(iso).toLocaleDateString('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-')}
   function timeAtSeoul(iso){return new Date(iso).toLocaleTimeString('en-GB',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hour12:false})}
-  function fromGoogle(e,pid,calId,role){const allDay=Boolean(e.start?.date);const sd=allDay?e.start.date:dateAtSeoul(e.start?.dateTime||new Date().toISOString());const end=allDay?addDays(e.end.date,-1):dateAtSeoul(e.end?.dateTime||new Date().toISOString());return {id:'g:'+calId+':'+e.id,googleId:e.id,calendarId:calId,person:pid,title:e.summary||'(제목 없음)',date:sd,endDate:end<sd?sd:end,allDay,start:allDay?'':timeAtSeoul(e.start.dateTime),end:allDay?'':timeAtSeoul(e.end.dateTime),memo:e.description||'',cloud:true,readonly:!['owner','writer'].includes(role)||Boolean(e.recurringEventId)||e.eventType&&e.eventType!=='default'}}
-  async function syncGoogle(force=false){if(!cloudActive()||syncBusy)return;if(!force&&Date.now()-lastSync<50000)return;syncBusy=true;setSyncStatus('동기화 중',true);try{const mapped=PEOPLE.map(p=>({pid:p.id,id:activeCalendar(p.id)})).filter(x=>x.id);const result=[];const start=new Date(view.getFullYear()-1,view.getMonth(),1).toISOString();const end=new Date(view.getFullYear()+2,view.getMonth(),1).toISOString();for(const m of mapped){const cal=availableCalendars.find(x=>x.id===m.id);if(!cal)continue;let page='';do{const qs=new URLSearchParams({singleEvents:'true',timeMin:start,timeMax:end,maxResults:'2500',timeZone:'Asia/Seoul'});if(page)qs.set('pageToken',page);const r=await googleApi('calendars/'+encodeURIComponent(m.id)+'/events?'+qs);result.push(...(r.items||[]).filter(e=>e.status!=='cancelled'&&e.start&&e.end).map(e=>fromGoogle(e,m.pid,m.id,cal.accessRole)));page=r.nextPageToken||''}while(page)}cloudEvents=result;lastSync=Date.now();render();setSyncStatus('연결됨 · 동기화 완료',true)}catch(e){setSyncStatus('동기화 오류',true);throw e}finally{syncBusy=false}}
+  function fromGoogle(e,pid,calId,role){const allDay=Boolean(e.start?.date);const sd=allDay?e.start.date:dateAtSeoul(e.start?.dateTime||new Date().toISOString());const end=allDay?addDays(e.end.date,-1):dateAtSeoul(e.end?.dateTime||new Date().toISOString());const tagged=e.extendedProperties?.private?.familyDashboardPerson;const owner=PEOPLE.some(p=>p.id===tagged)?tagged:pid;return {id:'g:'+calId+':'+e.id,googleId:e.id,calendarId:calId,person:owner,title:e.summary||'(제목 없음)',date:sd,endDate:end<sd?sd:end,allDay,start:allDay?'':timeAtSeoul(e.start.dateTime),end:allDay?'':timeAtSeoul(e.end.dateTime),memo:e.description||'',cloud:true,readonly:!['owner','writer'].includes(role)||Boolean(e.recurringEventId)||(e.eventType&&e.eventType!=='default'),localOriginalId:e.extendedProperties?.private?.familyDashboardLocalId||''}}
+  async function syncGoogle(force=false){if(!cloudActive()||syncBusy)return;if(!force&&Date.now()-lastSync<50000)return;syncBusy=true;setSyncStatus('동기화 중',true);try{const ids=[...new Set(PEOPLE.map(p=>activeCalendar(p.id)).filter(Boolean))];const result=[];const start=new Date(view.getFullYear()-1,view.getMonth(),1).toISOString();const end=new Date(view.getFullYear()+2,view.getMonth(),1).toISOString();for(const id of ids){const cal=availableCalendars.find(x=>x.id===id);if(!cal)continue;const mapped=PEOPLE.find(p=>activeCalendar(p.id)===id);let page='';do{const qs=new URLSearchParams({singleEvents:'true',timeMin:start,timeMax:end,maxResults:'2500',timeZone:'Asia/Seoul'});if(page)qs.set('pageToken',page);const r=await googleApi('calendars/'+encodeURIComponent(id)+'/events?'+qs);result.push(...(r.items||[]).filter(e=>e.status!=='cancelled'&&e.start&&e.end).map(e=>fromGoogle(e,mapped.id,id,cal.accessRole)));page=r.nextPageToken||''}while(page)}cloudEvents=result;lastSync=Date.now();render();setSyncStatus('연결됨 · 동기화 완료',true)}catch(e){setSyncStatus('동기화 오류',true);throw e}finally{syncBusy=false;updateMigrationUI()}}
   function scheduleSync(){if(syncInterval)clearInterval(syncInterval);syncInterval=setInterval(()=>{if(cloudActive())syncGoogle(false).catch(e=>toast('동기화 실패: '+e.message));else if(googleToken){googleToken=null;googleTokenExpiry=0;setSyncStatus('재로그인 필요')}},60000)}
-  function googleBody(e){return {summary:e.title,description:e.memo||'',start:e.allDay?{date:e.date}:{dateTime:e.date+'T'+e.start+':00+09:00',timeZone:'Asia/Seoul'},end:e.allDay?{date:addDays(e.endDate,1)}:{dateTime:e.endDate+'T'+e.end+':00+09:00',timeZone:'Asia/Seoul'}}}
+  function googleBody(e){return {summary:e.title,description:e.memo||'',start:e.allDay?{date:e.date}:{dateTime:e.date+'T'+e.start+':00+09:00',timeZone:'Asia/Seoul'},end:e.allDay?{date:addDays(e.endDate,1)}:{dateTime:e.endDate+'T'+e.end+':00+09:00',timeZone:'Asia/Seoul'},extendedProperties:{private:{familyDashboardPerson:e.person,...(e.localOriginalId?{familyDashboardLocalId:e.localOriginalId}:{})}}}}
   async function googleWrite(method,calendarId,eventId,e){return googleApi('calendars/'+encodeURIComponent(calendarId)+'/events'+(eventId?'/'+encodeURIComponent(eventId):''),{method,body:e?JSON.stringify(googleBody(e)):undefined})}
+  async function migrateLocalEvents(){
+    if(!cloudActive()){toast('먼저 Google 계정에 연결해 주세요.');return}
+    if(migrationBusy)return;
+    const items=pendingLocal();if(!items.length){toast('이전할 로컬 일정이 없습니다.');return}
+    const missing=[...new Set(items.map(e=>e.person).filter(pid=>!mappedWritable(pid)))];
+    if(missing.length){$('syncSettings').open=true;toast('먼저 Google 캘린더 연결을 확인하세요: '+missing.map(pid=>person(pid).name).join(', '));return}
+    if(!confirm(`PC에만 저장된 ${items.length}개 일정을 Google 캘린더로 이전할까요?\n\n이전 성공한 일정은 브라우저 로컬 목록에서 제거합니다.\n중요: 먼저 상단의 '로컬 백업'을 눌러 JSON 파일로 보관해 주세요.`))return;
+    migrationBusy=true;updateMigrationUI();const status=$('migrationProgress');let done=0;
+    for(const item of items){
+      try{
+        const calId=activeCalendar(item.person);
+        // Use persistent import identifier so retries will not create duplicates when network errors occur.
+        const googleId='f'+hashId(String(item.id));
+        const event={...item,localOriginalId:item.id};
+        try{await googleApi('calendars/'+encodeURIComponent(calId)+'/events',{method:'POST',body:JSON.stringify({...googleBody(event),id:googleId})})}
+        catch(err){if(!String(err.message).includes('already exists')&&!String(err.message).includes('409'))throw err}
+        state.events=state.events.filter(x=>x.id!==item.id);persist();done++;
+        status.textContent=`이전 완료 ${done} / ${items.length}건`;
+      }catch(err){status.textContent=`${done}건 성공 · ${person(item.person).name}의 '${item.title}' 오류: ${err.message}`;break}
+    }
+    migrationBusy=false;await syncGoogle(true).catch(()=>{});updateMigrationUI();
+    toast(done===items.length?`${done}건을 Google로 이전했습니다.`:`${done}/${items.length}건 이전 완료. 남은 일정은 로컬에 유지됩니다.`);
+  }
+  function hashId(text){let h1=2166136261,h2=2246822519;for(let i=0;i<text.length;i++){const x=text.charCodeAt(i);h1=Math.imul(h1^x,16777619);h2=Math.imul(h2^x,3266489917)}return (h1>>>0).toString(16).padStart(8,'0')+(h2>>>0).toString(16).padStart(8,'0')}
   function disconnectGoogle(){if(googleToken&&window.google?.accounts?.oauth2)google.accounts.oauth2.revoke(googleToken,()=>{});googleToken=null;googleTokenExpiry=0;cloudEvents=[];availableCalendars=[];if(syncInterval)clearInterval(syncInterval);lastSync=0;renderMappings();render();setSyncStatus('연결되지 않음');toast('Google 연결을 해제했습니다. Google의 일정은 삭제되지 않습니다.')}
 
   function readState(){try {const s=JSON.parse(localStorage.getItem(KEY));return {events:Array.isArray(s?.events)?s.events:[],qt:s?.qt&&typeof s.qt==='object'?s.qt:{}}}catch{return {events:[],qt:{}}}}
-  function persist(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch{toast('브라우저 저장에 실패했습니다. 저장 공간을 확인하세요.')}}
+  function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));updateMigrationUI()}catch{toast('브라우저 저장에 실패했습니다. 저장 공간을 확인하세요.')}}
   function toYMD(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
   function parseDate(s){return new Date(s+'T12:00:00')}
   function addDays(s,n){const d=parseDate(s);d.setDate(d.getDate()+n);return toYMD(d)}
@@ -347,14 +385,21 @@
     try{
       if(original){
         if(original.cloud){await googleWrite('PUT',original.calendarId,original.googleId,e);cloudChanged=true}
-        else{state.events=state.events.map(x=>x.id===id?e:x);persist()}
+        else if(cloudWritable(e.person)){
+          await googleWrite('POST',activeCalendar(e.person),null,{...e,localOriginalId:original.id});
+          state.events=state.events.filter(x=>x.id!==id);persist();cloudChanged=true;
+        }else{state.events=state.events.map(x=>x.id===id?e:x);persist();toast('Google 미연결: 이 일정은 현재 PC에만 저장됩니다.')}
       }else{
+        if(!cloudActive()&&!confirm('Google 계정에 연결되지 않아 다른 기기와 공유되지 않습니다. 로컬 저장을 계속할까요?'))return;
         for(const date of dates){
           const item={...e,id:'evt-'+Date.now()+'-'+Math.random().toString(36).slice(2),date,endDate:mode==='once'?e.endDate:date};
           if(cloudWritable(e.person)){
             await googleWrite('POST',activeCalendar(e.person),null,item);
             cloudChanged=true;
-          }else{state.events.push(item);persist()}
+          }else{
+            if(cloudActive()&&!mappedWritable(e.person))throw Error(`${person(e.person).name}의 Google 캘린더가 미연결이거나 쓰기 권한이 없습니다. 연동 설정에서 캘린더를 선택하세요.`);
+            state.events.push(item);persist()
+          }
           created++;
           button.textContent=`저장 중 (${created}/${dates.length})`;
         }
@@ -406,7 +451,7 @@
   $('exportIcs').onclick=exportICS;$('backupBtn').onclick=backup;$('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=e=>restore(e.target.files[0]);
   ['eventModal','qtModal'].forEach(id=>$(id).addEventListener('mousedown',e=>{if(e.target===$(id))showModal(id,false)}));document.addEventListener('keydown',e=>{if(e.key==='Escape'){showModal('eventModal',false);showModal('qtModal',false)}});
   $('oauthClientId').value=config.clientId;$('saveClient').onclick=()=>{const v=$('oauthClientId').value.trim();if(v&&!/^[^\s]+\.apps\.googleusercontent\.com$/.test(v)){toast('올바른 Google OAuth 웹 클라이언트 ID인지 확인해 주세요.');return}config.clientId=v;saveConfig();toast('클라이언트 ID를 저장했습니다. Google 연결을 눌러 주세요.')};
-  $('googleConnect').onclick=connectGoogle;$('googleDisconnect').onclick=disconnectGoogle;$('syncNow').onclick=()=>syncGoogle(true).then(()=>toast('Google 캘린더를 새로고침했습니다.')).catch(e=>toast('동기화 실패: '+e.message));$('saveMappings').onclick=saveMappings;
+  $('applyShared').onclick=()=>{const id=$('sharedCalendar').value;if(!id){toast('공용 Google 캘린더를 선택해 주세요.');return}PEOPLE.forEach(p=>{$('map-'+p.id).value=id});toast('5개 항목에 적용했습니다. 아래의 연결 저장을 눌러주세요.')};$('migrateLocal').onclick=migrateLocalEvents;$('googleConnect').onclick=connectGoogle;$('googleDisconnect').onclick=disconnectGoogle;$('syncNow').onclick=()=>syncGoogle(true).then(()=>toast('Google 캘린더를 새로고침했습니다.')).catch(e=>toast('동기화 실패: '+e.message));$('saveMappings').onclick=saveMappings;
   window.addEventListener('focus',()=>{if(cloudActive())syncGoogle(false).catch(()=>{})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloudActive())syncGoogle(false).catch(()=>{})});
   renderMappings();setSyncStatus('연결되지 않음');render();
 })();
