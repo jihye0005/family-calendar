@@ -90,6 +90,7 @@
       <button id="backupBtn" class="secondary">↓ 로컬 백업</button>
       <button id="restoreBtn" class="secondary">↑ 로컬 복원</button>
       <input type="file" id="restoreFile" accept=".json,application/json" hidden />
+      <button id="bulkDeleteBtn" class="secondary" style="color:#b42332;border-color:#f0c7ce">☑ 여러 일정 삭제</button>
       <button id="addBtn" class="primary">＋ 일정 추가</button>
     </div>
   </header>
@@ -196,6 +197,21 @@
       <div><label for="eventMemo">메모 (선택)</label><textarea id="eventMemo" rows="3" class="field" maxlength="1000" placeholder="준비물, 장소, 참고할 내용"></textarea></div>
       <div class="flex justify-between items-center pt-2 gap-2"><button id="deleteEvent" type="button" class="text-red-500 font-bold text-sm" style="display:none">일정 삭제</button><div class="ml-auto flex gap-2"><button type="button" id="cancelEvent" class="secondary">취소</button><button type="submit" class="primary">저장하기</button></div></div>
     </form>
+  </div>
+</div>
+<div id="bulkDeleteModal" class="modal-backdrop" hidden style="display:none" role="dialog" aria-modal="true" aria-labelledby="bulkDeleteTitle">
+  <div class="modal" style="width:min(100%,720px)">
+    <div class="flex justify-between items-center mb-3 gap-2"><h2 id="bulkDeleteTitle" class="text-xl font-extrabold">여러 일정 선택 삭제</h2><button type="button" id="closeBulkDelete" aria-label="닫기" class="text-2xl muted">×</button></div>
+    <p class="hint mb-4">가족과 날짜 범위를 선택한 다음 삭제할 일정만 체크하세요. Google에 저장된 일정은 Google 캘린더에서도 삭제됩니다. 삭제 전 백업을 권장합니다.</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+      <div><label for="bulkPerson">가족별 일정</label><select id="bulkPerson" class="field"></select></div>
+      <div><label for="bulkStart">시작 날짜</label><input type="date" id="bulkStart" class="field"></div>
+      <div><label for="bulkEnd">종료 날짜</label><input type="date" id="bulkEnd" class="field"></div>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-2"><label class="flex items-center gap-2 !mb-0"><input id="bulkSelectAll" type="checkbox" class="w-4 h-4"> 현재 목록 전체 선택</label><span id="bulkCounts" class="hint" aria-live="polite"></span></div>
+    <div id="bulkList" class="space-y-2 border rounded-xl p-2" style="max-height:310px;overflow-y:auto" aria-label="삭제할 일정 목록"></div>
+    <div id="bulkProgress" class="hint mt-3" role="status" aria-live="polite"></div>
+    <div class="flex flex-wrap justify-end gap-2 mt-4"><button type="button" id="cancelBulkDelete" class="secondary">닫기</button><button type="button" id="confirmBulkDelete" class="primary" style="background:#b42332;border-color:#b42332" disabled>선택 일정 삭제 (0건)</button></div>
   </div>
 </div>
 <div id="qtModal" class="modal-backdrop" hidden style="display:none" role="dialog" aria-modal="true" aria-labelledby="qtModalTitle">
@@ -310,6 +326,80 @@
     const end=addDays(today,30);const upcoming=ordered(filtered().filter(e=>e.endDate>=today&&e.date<=end)).slice(0,8);$('upcomingEvents').innerHTML=upcoming.length?upcoming.map(e=>eventHTML(e,true)).join(''):'<div class="empty">다가오는 일정이 없습니다.</div>';bindEventRows();renderQt()}
   function renderQt(){const q=state.qt[selected]||{};$('qtDate').textContent=dateLabel(selected,true);$('qtRef').textContent=q.ref||'본문 미등록';$('qtVerse').textContent=q.verse||'오늘의 말씀을 입력해 보세요.';$('qtReflection').textContent=q.reflection||'묵상과 기도를 기록할 수 있습니다.'}
   function render(){renderTabs();renderCalendar();renderSide()}
+
+  // 여러 일정 삭제: 현재 범위에서 명시적으로 체크한 일정만 대상으로 함.
+  let bulkSelection=new Set(), bulkBusy=false;
+  function bulkCandidates(){
+    const start=$('bulkStart').value, end=$('bulkEnd').value, pid=$('bulkPerson').value;
+    if(!start||!end||start>end)return [];
+    return ordered(allEvents().filter(e=>(pid==='all'||e.person===pid)&&e.date<=end&&e.endDate>=start));
+  }
+  function bulkDeletable(e){return !e.cloud || (cloudActive()&&!e.readonly)}
+  function bulkRender(){
+    const es=bulkCandidates();const deletable=es.filter(bulkDeletable);
+    const visibleIds=new Set(deletable.map(e=>e.id));
+    bulkSelection=new Set([...bulkSelection].filter(id=>visibleIds.has(id)));
+    $('bulkList').innerHTML=es.length?es.map(e=>{
+      const p=person(e.person),can=bulkDeletable(e),checked=bulkSelection.has(e.id);
+      const dateInfo=esc(e.date+(e.endDate>e.date?' ~ '+e.endDate:''));
+      const source=e.cloud?'Google 일정':'PC 로컬 일정';
+      return `<label class="flex items-center gap-3 border rounded-xl p-3 ${can?'cursor-pointer':'opacity-50'}" style="margin:0">
+        <input type="checkbox" data-bulk-id="${esc(e.id)}" class="w-4 h-4 shrink-0" ${checked?'checked':''} ${can?'':'disabled'}>
+        <span class="min-w-0 flex-1"><span class="block font-bold text-sm truncate">${esc(e.title)}</span><span class="block text-xs muted mt-1">${dateInfo} · ${esc(p.name)} · ${source}${can?'':' · 수정/삭제 제한'}</span></span>
+      </label>`;
+    }).join(''):'<p class="empty">이 기간에 표시할 일정이 없습니다.</p>';
+    $('bulkList').querySelectorAll('[data-bulk-id]').forEach(input=>input.onchange=()=>{if(input.checked)bulkSelection.add(input.dataset.bulkId);else bulkSelection.delete(input.dataset.bulkId);bulkUpdateCount()});
+    $('bulkCounts').textContent=`조회 ${es.length}건 · 삭제 가능 ${deletable.length}건`;
+    bulkUpdateCount();
+  }
+  function bulkUpdateCount(){
+    const ids=bulkCandidates().filter(bulkDeletable).map(e=>e.id);
+    const selectedCount=ids.filter(id=>bulkSelection.has(id)).length;
+    $('bulkSelectAll').checked=ids.length>0&&selectedCount===ids.length;
+    $('bulkSelectAll').indeterminate=selectedCount>0&&selectedCount<ids.length;
+    $('confirmBulkDelete').disabled=bulkBusy||selectedCount===0;
+    $('confirmBulkDelete').textContent=`선택 일정 삭제 (${selectedCount}건)`;
+  }
+  function openBulkDelete(){
+    bulkSelection.clear();bulkBusy=false;
+    const y=view.getFullYear(),m=view.getMonth();
+    $('bulkStart').value=toYMD(new Date(y,m,1));
+    $('bulkEnd').value=toYMD(new Date(y,m+1,0));
+    $('bulkPerson').value=filter;
+    $('bulkProgress').textContent='';
+    bulkRender();showModal('bulkDeleteModal',true);
+  }
+  async function performBulkDelete(){
+    const chosen=bulkCandidates().filter(e=>bulkSelection.has(e.id)&&bulkDeletable(e));
+    if(!chosen.length)return;
+    const remote=chosen.filter(e=>e.cloud).length,local=chosen.length-remote;
+    if(!confirm(`선택한 ${chosen.length}건(구글 ${remote}건, PC ${local}건)을 삭제하시겠습니까?\n\nGoogle에 저장된 일정은 Google 캘린더에서도 삭제됩니다. 삭제 후 되돌리기 어렵습니다.`))return;
+    bulkBusy=true;$('bulkSelectAll').disabled=true;
+    ['bulkPerson','bulkStart','bulkEnd','closeBulkDelete','cancelBulkDelete'].forEach(id=>$(id).disabled=true);
+    bulkUpdateCount();
+    let deleted=0,failed=[];let googleChanged=false;
+    for(const e of chosen){
+      $('bulkProgress').textContent=`삭제 진행 중: ${deleted+failed.length+1}/${chosen.length}`;
+      try{
+        if(e.cloud){
+          if(!cloudActive())throw Error('Google 로그인이 만료되었습니다.');
+          await googleWrite('DELETE',e.calendarId,e.googleId);
+          cloudEvents=cloudEvents.filter(x=>x.id!==e.id);googleChanged=true;
+        }else{
+          state.events=state.events.filter(x=>x.id!==e.id);persist();
+        }
+        bulkSelection.delete(e.id);deleted++;
+      }catch(err){failed.push(`${e.title}: ${err.message}`)}
+    }
+    bulkBusy=false;$('bulkSelectAll').disabled=false;
+    ['bulkPerson','bulkStart','bulkEnd','closeBulkDelete','cancelBulkDelete'].forEach(id=>$(id).disabled=false);
+    render();
+    if(googleChanged&&cloudActive())try{await syncGoogle(true)}catch(err){failed.push('Google 일정 새로고침: '+err.message)}
+    bulkRender();
+    $('bulkProgress').textContent=`삭제 완료 ${deleted}건${failed.length?' · 오류 '+failed.length+'건: '+failed.slice(0,2).join(' / '):''}.`;
+    if(!failed.length&&deleted){toast(`${deleted}건의 일정이 삭제되었습니다.`)}
+  }
+
   let multiDates = new Set(), weeklyDays = new Set();
   function updateRepeatUI(){
     const mode=$('repeatMode').value;
@@ -443,13 +533,19 @@
   };
   $('todayLabel').textContent='오늘 '+dateLabel(today,true)+' · 가족의 소중한 하루를 함께 기록해요';
   $('eventPerson').innerHTML=PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  $('bulkPerson').innerHTML='<option value="all">전체 캘린더</option>'+PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   $('prevMonth').onclick=()=>{view=new Date(view.getFullYear(),view.getMonth()-1,1);renderCalendar()};$('nextMonth').onclick=()=>{view=new Date(view.getFullYear(),view.getMonth()+1,1);renderCalendar()};$('goToday').onclick=()=>{selected=today;view=parseDate(today);renderCalendar();renderSide()};
   $('addBtn').onclick=()=>openEvent();$('addSelected').onclick=()=>openEvent();$('eventForm').onsubmit=saveEvent;$('allDay').onchange=toggleTime;
   $('closeEvent').onclick=$('cancelEvent').onclick=()=>showModal('eventModal',false);
   $('deleteEvent').onclick=async()=>{const id=$('eventId').value,e=allEvents().find(x=>x.id===id);if(!e||!confirm('이 일정을 삭제할까요? Google에 연결된 일정은 Google 캘린더에서도 삭제됩니다.'))return;try{if(e.cloud){if(e.readonly)throw Error('읽기 전용 또는 반복 일정은 여기서 삭제할 수 없습니다.');await googleWrite('DELETE',e.calendarId,e.googleId)}else{state.events=state.events.filter(x=>x.id!==id);persist()}showModal('eventModal',false);if(e.cloud)await syncGoogle(true);else render();toast('일정이 삭제되었습니다.')}catch(error){toast('삭제 실패: '+error.message)}};
+  $('bulkDeleteBtn').onclick=openBulkDelete;
+  $('closeBulkDelete').onclick=$('cancelBulkDelete').onclick=()=>{if(!bulkBusy)showModal('bulkDeleteModal',false)};
+  $('bulkPerson').onchange=$('bulkStart').onchange=$('bulkEnd').onchange=()=>{bulkSelection.clear();bulkRender()};
+  $('bulkSelectAll').onchange=()=>{const ids=bulkCandidates().filter(bulkDeletable).map(e=>e.id);bulkSelection=new Set($('bulkSelectAll').checked?ids:[]);bulkRender()};
+  $('confirmBulkDelete').onclick=performBulkDelete;
   $('editQt').onclick=openQt;$('qtForm').onsubmit=saveQt;$('closeQt').onclick=$('cancelQt').onclick=()=>showModal('qtModal',false);
   $('exportIcs').onclick=exportICS;$('backupBtn').onclick=backup;$('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=e=>restore(e.target.files[0]);
-  ['eventModal','qtModal'].forEach(id=>$(id).addEventListener('mousedown',e=>{if(e.target===$(id))showModal(id,false)}));document.addEventListener('keydown',e=>{if(e.key==='Escape'){showModal('eventModal',false);showModal('qtModal',false)}});
+  ['eventModal','qtModal','bulkDeleteModal'].forEach(id=>$(id).addEventListener('mousedown',e=>{if(e.target===$(id)&&(id!=='bulkDeleteModal'||!bulkBusy))showModal(id,false)}));document.addEventListener('keydown',e=>{if(e.key==='Escape'){showModal('eventModal',false);showModal('qtModal',false);if(!bulkBusy)showModal('bulkDeleteModal',false)}});
   $('oauthClientId').value=config.clientId;$('saveClient').onclick=()=>{const v=$('oauthClientId').value.trim();if(v&&!/^[^\s]+\.apps\.googleusercontent\.com$/.test(v)){toast('올바른 Google OAuth 웹 클라이언트 ID인지 확인해 주세요.');return}config.clientId=v;saveConfig();toast('클라이언트 ID를 저장했습니다. Google 연결을 눌러 주세요.')};
   $('applyShared').onclick=()=>{const id=$('sharedCalendar').value;if(!id){toast('공용 Google 캘린더를 선택해 주세요.');return}PEOPLE.forEach(p=>{$('map-'+p.id).value=id});toast('5개 항목에 적용했습니다. 아래의 연결 저장을 눌러주세요.')};$('migrateLocal').onclick=migrateLocalEvents;$('googleConnect').onclick=connectGoogle;$('googleDisconnect').onclick=disconnectGoogle;$('syncNow').onclick=()=>syncGoogle(true).then(()=>toast('Google 캘린더를 새로고침했습니다.')).catch(e=>toast('동기화 실패: '+e.message));$('saveMappings').onclick=saveMappings;
   window.addEventListener('focus',()=>{if(cloudActive())syncGoogle(false).catch(()=>{})});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&cloudActive())syncGoogle(false).catch(()=>{})});
