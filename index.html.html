@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>우리 가족 대시보드</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --ink:#172235; --muted:#748195; --border:#e9edf3; --bg:#fff; }
+    * {box-sizing:border-box}
+    body {font-family: 'Pretendard', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:var(--ink); background:#fff; margin:0}
+    button,input,select,textarea {font:inherit}
+    button {cursor:pointer}
+    .app {max-width:1536px;margin:auto;padding:30px 34px 70px}
+    .muted {color:var(--muted)}
+    .surface {background:#fff;border:1px solid var(--border);border-radius:22px;box-shadow:0 6px 25px rgba(18,43,74,.035)}
+    .navbtn {border:1px solid var(--border);background:#fff;border-radius:12px;width:36px;height:36px;font-size:21px;line-height:1}
+    .primary {background:#253b62;color:white;border-radius:12px;padding:11px 16px;font-weight:700;border:1px solid #253b62}
+    .secondary {background:white;color:#31415b;border:1px solid #dfe5ed;border-radius:12px;padding:10px 14px;font-weight:650}
+    .tab {padding:10px 14px;border-radius:12px;border:1px solid transparent;color:#68778c;background:transparent;font-weight:650;white-space:nowrap}
+    .tab.active {color:#233954;background:#f0f4fa;border-color:#e1e8f2}
+    .calendar {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--border);border-left:1px solid var(--border);overflow:hidden;border-radius:14px}
+    .weekday {padding:10px 4px;text-align:center;color:#8c96a5;font-size:12px;background:#f8fafc;border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+    .day {height:116px;min-width:0;padding:9px 6px 6px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:#fff;text-align:left;overflow:hidden;cursor:pointer;transition:background .12s}
+    .day:hover {background:#f8fafd}
+    .day.outside {background:#fcfcfd;color:#c5cad3}
+    .day.selected {outline:2px solid #7d9aca;outline-offset:-2px;background:#f6f9fe}
+    .day.today .number {background:#2d466e;color:#fff;border-radius:100%;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center}
+    .number {font-size:13px;font-weight:650;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center}
+    .event-pill {display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;border-radius:5px;padding:3px 5px;margin-top:3px;font-size:11px;font-weight:700;text-align:left}
+    .event-row {border:1px solid #edf0f4;border-radius:13px;padding:11px 12px;display:flex;align-items:center;gap:11px;cursor:pointer;background:#fff;text-align:left;width:100%}
+    .event-row:hover {background:#f8fafc}
+    .dot {height:9px;width:9px;display:inline-block;border-radius:50%;flex-shrink:0}
+    .field {width:100%;border:1px solid #dfe5ed;border-radius:11px;padding:11px 12px;background:white;outline:none;color:#21334f}
+    .field:focus {border-color:#7699cd;box-shadow:0 0 0 3px rgba(118,153,205,.12)}
+    label {font-size:13px;font-weight:700;color:#4e5d72;display:block;margin-bottom:7px}
+    .modal-backdrop {position:fixed;inset:0;background:rgba(17,26,43,.42);z-index:20;display:flex;justify-content:center;align-items:center;padding:16px}
+    .modal {width:min(100%,510px);max-height:92vh;overflow-y:auto;border-radius:23px;background:white;padding:25px;box-shadow:0 20px 80px rgba(0,0,0,.16)}
+    .tag {font-size:12px;font-weight:750;border-radius:999px;padding:5px 10px}
+    .empty {text-align:center;padding:35px 10px;color:#94a0b0;font-size:13px}
+    .quick-select {padding:8px 11px;border-radius:99px;font-size:12px;font-weight:700;border:1px solid #e5eaf2;background:white}
+    .quick-select.on {background:#eff4fa;border-color:#9bb2d0;color:#274268}
+    #toast {position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#243650;color:white;padding:12px 18px;border-radius:12px;box-shadow:0 10px 30px #0002;z-index:30;display:none;font-size:13px}
+    @media(max-width:1050px) {.layout {grid-template-columns:1fr!important}.sidepanel {display:grid;grid-template-columns:1fr 1fr;gap:16px}.day {height:105px}}
+    @media(max-width:650px) {.app {padding:18px 12px 45px}.surface {border-radius:16px}.sidepanel {grid-template-columns:1fr}.day {height:83px;padding:4px 3px}.event-pill {font-size:9px;padding:2px 3px}.weekday {font-size:11px}.number {font-size:12px}.header-actions {width:100%;justify-content:flex-start}.tab {font-size:12px;padding:9px 11px}.calendar-pad {padding:12px!important}.desktop-title {font-size:24px!important}}
+  </style>
+</head>
+<body>
+<main class="app">
+  <header class="flex flex-wrap items-start justify-between gap-5 mb-7">
+    <div>
+      <div class="text-xs font-extrabold tracking-widest text-slate-400 mb-2">OUR FAMILY · HOME PLANNER</div>
+      <h1 class="desktop-title text-[32px] font-extrabold tracking-tight">우리 가족 대시보드 <span class="text-2xl">🏡</span></h1>
+      <p id="todayLabel" class="muted text-sm mt-2"></p>
+    </div>
+    <div class="header-actions flex flex-wrap gap-2 items-center">
+      <button id="exportIcs" class="secondary">↓ 캘린더 내보내기 (.ics)</button>
+      <button id="backupBtn" class="secondary">↓ 백업</button>
+      <button id="restoreBtn" class="secondary">↑ 복원</button>
+      <input type="file" id="restoreFile" accept=".json,application/json" hidden />
+      <button id="addBtn" class="primary">＋ 일정 추가</button>
+    </div>
+  </header>
+
+  <section class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="summary"></section>
+  <section class="surface p-4 md:p-5 mb-5">
+    <div class="flex flex-wrap gap-2 items-center" id="tabs" aria-label="가족별 일정 선택"></div>
+  </section>
+
+  <div class="layout grid gap-5" style="grid-template-columns:minmax(0,1.8fr) minmax(305px,.75fr)">
+    <section class="surface calendar-pad p-5 md:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div class="flex items-center gap-3">
+          <button id="prevMonth" class="navbtn" aria-label="이전 달">‹</button>
+          <h2 id="monthTitle" class="font-extrabold text-xl min-w-[145px] text-center"></h2>
+          <button id="nextMonth" class="navbtn" aria-label="다음 달">›</button>
+          <button id="goToday" class="secondary text-xs">오늘</button>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs muted" id="legend"></div>
+      </div>
+      <div id="calendar" class="calendar" role="grid" aria-label="월별 가족 일정"></div>
+      <p class="text-xs text-slate-400 mt-3">날짜를 누르면 해당 일정을 확인하고 추가할 수 있습니다. 일정은 현재 브라우저에 저장됩니다.</p>
+    </section>
+    <aside class="sidepanel flex flex-col gap-5">
+      <section class="surface p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div><div class="text-xs muted mb-1">SELECTED DAY</div><h3 id="selectedTitle" class="text-lg font-extrabold"></h3></div>
+          <button id="addSelected" class="secondary text-xs">＋ 추가</button>
+        </div>
+        <div id="selectedEvents" class="space-y-2"></div>
+      </section>
+      <section class="surface p-5">
+        <div class="flex items-center justify-between mb-4"><div><div class="text-xs muted mb-1">COMING UP</div><h3 class="text-lg font-extrabold">다가오는 일정</h3></div><span class="text-xs text-slate-400">오늘부터 30일</span></div>
+        <div id="upcomingEvents" class="space-y-2"></div>
+      </section>
+      <section class="surface p-5">
+        <div class="flex items-center justify-between gap-2 mb-3"><div><div class="text-xs muted mb-1">DAILY DEVOTION</div><h3 class="text-lg font-extrabold">📖 큐티 말씀</h3></div><button id="editQt" class="secondary text-xs">편집</button></div>
+        <div id="qtDate" class="text-xs text-slate-400 mb-3"></div>
+        <div id="qtRef" class="text-sm font-extrabold text-indigo-800 mb-2"></div>
+        <p id="qtVerse" class="text-sm leading-7 whitespace-pre-wrap text-slate-700"></p>
+        <div class="border-t border-slate-100 my-4"></div>
+        <div class="text-xs font-bold text-slate-500 mb-2">오늘의 묵상 · 기도</div>
+        <p id="qtReflection" class="text-sm leading-7 whitespace-pre-wrap text-slate-600"></p>
+      </section>
+    </aside>
+  </div>
+  <footer class="text-xs text-center text-slate-400 mt-7 leading-6">개인정보 보호를 위해 일정과 큐티 내용은 이 기기의 브라우저에만 보관됩니다. 가족 간 실시간 공유·자동 동기화는 별도 연결이 필요합니다.<br>Tailwind CSS는 CDN으로 불러오므로 스타일을 완전히 표시하려면 인터넷 연결이 필요합니다.</footer>
+</main>
+
+<div id="eventModal" class="modal-backdrop" hidden style="display:none" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
+  <div class="modal">
+    <div class="flex justify-between items-center mb-5"><h2 id="eventModalTitle" class="text-xl font-extrabold">일정 추가</h2><button id="closeEvent" aria-label="닫기" class="text-2xl muted">×</button></div>
+    <form id="eventForm" class="space-y-4">
+      <input type="hidden" id="eventId" />
+      <div><label for="eventName">일정 이름 *</label><input id="eventName" class="field" required maxlength="100" placeholder="예: 가족 나들이, 병원 예약" /></div>
+      <div><label for="eventPerson">캘린더 *</label><select id="eventPerson" class="field" required></select></div>
+      <div class="grid grid-cols-2 gap-3"><div><label for="eventDate">시작 날짜 *</label><input type="date" id="eventDate" class="field" required /></div><div><label for="eventEndDate">종료 날짜 *</label><input type="date" id="eventEndDate" class="field" required /></div></div>
+      <div class="flex items-center gap-2"><input type="checkbox" id="allDay" checked class="w-4 h-4"/><label for="allDay" class="!mb-0">하루 종일</label></div>
+      <div id="timeFields" class="grid grid-cols-2 gap-3" hidden style="display:none"><div><label for="startTime">시작 시간</label><input type="time" id="startTime" class="field" value="09:00"/></div><div><label for="endTime">종료 시간</label><input type="time" id="endTime" class="field" value="10:00"/></div></div>
+      <div><label for="eventMemo">메모 (선택)</label><textarea id="eventMemo" rows="3" class="field" maxlength="1000" placeholder="준비물, 장소, 참고할 내용"></textarea></div>
+      <div class="flex justify-between items-center pt-2 gap-2"><button id="deleteEvent" type="button" class="text-red-500 font-bold text-sm" style="display:none">일정 삭제</button><div class="ml-auto flex gap-2"><button type="button" id="cancelEvent" class="secondary">취소</button><button type="submit" class="primary">저장하기</button></div></div>
+    </form>
+  </div>
+</div>
+<div id="qtModal" class="modal-backdrop" hidden style="display:none" role="dialog" aria-modal="true" aria-labelledby="qtModalTitle">
+  <div class="modal"><div class="flex justify-between items-center mb-5"><h2 id="qtModalTitle" class="text-xl font-extrabold">📖 큐티 말씀 편집</h2><button id="closeQt" class="text-2xl muted" aria-label="닫기">×</button></div>
+    <form id="qtForm" class="space-y-4"><div><label for="qtInputDate">날짜</label><input type="date" class="field" id="qtInputDate" required /></div><div><label for="qtInputRef">성경 본문</label><input class="field" id="qtInputRef" maxlength="150" placeholder="예: 시편 23편 1절" /></div><div><label for="qtInputVerse">말씀 본문</label><textarea class="field" id="qtInputVerse" rows="4" placeholder="오늘 묵상할 말씀을 입력하세요."></textarea></div><div><label for="qtInputReflection">묵상 · 기도</label><textarea class="field" id="qtInputReflection" rows="4" placeholder="오늘의 묵상과 기도를 기록하세요."></textarea></div><div class="flex justify-end gap-2"><button type="button" class="secondary" id="cancelQt">취소</button><button type="submit" class="primary">저장하기</button></div></form>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+(() => {
+  'use strict';
+  const KEY = 'family-dashboard-v1';
+  const PEOPLE = [
+    {id:'family',name:'가족 일정',color:'#6f76af',bg:'#eeedfa'},
+    {id:'dad',name:'아빠',color:'#407ab2',bg:'#eaf3fc'},
+    {id:'mom',name:'엄마',color:'#c27091',bg:'#fceef3'},
+    {id:'daeun',name:'다은',color:'#319a82',bg:'#e6f8f1'},
+    {id:'hayun',name:'하윤',color:'#ce9545',bg:'#fcf3df'}
+  ];
+  const $ = id => document.getElementById(id);
+  const today = toYMD(new Date());
+  let state = readState(), view = new Date(), selected = today, filter = 'all';
+  function readState(){try {const s=JSON.parse(localStorage.getItem(KEY));return {events:Array.isArray(s?.events)?s.events:[],qt:s?.qt&&typeof s.qt==='object'?s.qt:{}}}catch{return {events:[],qt:{}}}}
+  function persist(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch{toast('브라우저 저장에 실패했습니다. 저장 공간을 확인하세요.')}}
+  function toYMD(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+  function parseDate(s){return new Date(s+'T12:00:00')}
+  function addDays(s,n){const d=parseDate(s);d.setDate(d.getDate()+n);return toYMD(d)}
+  function dateLabel(s,withYear=false){return parseDate(s).toLocaleDateString('ko-KR',{...(withYear?{year:'numeric'}:{}),month:'long',day:'numeric',weekday:'long'})}
+  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function person(id){return PEOPLE.find(x=>x.id===id)||PEOPLE[0]}
+  function filtered(){return state.events.filter(e=>filter==='all'||e.person===filter)}
+  function ordered(es){return [...es].sort((a,b)=>a.date.localeCompare(b.date)||(a.allDay===b.allDay?0:a.allDay?-1:1)||(a.start||'').localeCompare(b.start||'')||a.title.localeCompare(b.title))}
+  let toastTimer;
+  function toast(text){const el=$('toast');el.textContent=text;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',2800)}
+  function showModal(id,show){const e=$(id);e.hidden=!show;e.style.display=show?'flex':'none';document.body.style.overflow=show?'hidden':''}
+  function renderSummary(){const next30=addDays(today,30);const counts=PEOPLE.slice(1).map(p=>({p,n:state.events.filter(e=>e.person===p.id&&e.endDate>=today&&e.date<=next30).length}));$('summary').innerHTML=counts.map(({p,n})=>`<button class="surface px-4 py-4 text-left hover:bg-slate-50" data-summary="${p.id}"><div class="flex items-center gap-2 text-sm font-bold text-slate-600"><span class="dot" style="background:${p.color}"></span>${p.name} 일정</div><div class="mt-2 text-2xl font-extrabold">${n}<span class="text-xs font-medium muted ml-1">건 · 향후 30일</span></div></button>`).join('');document.querySelectorAll('[data-summary]').forEach(x=>x.onclick=()=>{filter=x.dataset.summary;render()})}
+  function renderTabs(){$('tabs').innerHTML=[{id:'all',name:'전체 캘린더'},...PEOPLE].map(p=>`<button type="button" class="tab ${filter===p.id?'active':''}" data-filter="${p.id}">${p.id!=='all'?`<span class="dot mr-1" style="background:${p.color}"></span>`:''}${p.name}</button>`).join('');document.querySelectorAll('[data-filter]').forEach(x=>x.onclick=()=>{filter=x.dataset.filter;render()})}
+  function renderCalendar(){const y=view.getFullYear(),m=view.getMonth(),first=new Date(y,m,1),start=new Date(y,m,1-first.getDay()),weeks=Math.ceil((first.getDay()+new Date(y,m+1,0).getDate())/7),dayCount=weeks*7;
+    $('monthTitle').textContent=`${y}년 ${m+1}월`;
+    const wd=['일','월','화','수','목','금','토'].map((t,i)=>`<div class="weekday" style="${i===0?'color:#db8282':''}">${t}</div>`).join('');
+    let html=wd;
+    for(let i=0;i<dayCount;i++){const d=new Date(start);d.setDate(start.getDate()+i);const date=toYMD(d),isMonth=d.getMonth()===m;const es=ordered(filtered().filter(e=>e.date<=date&&e.endDate>=date));
+      html+=`<button type="button" class="day ${isMonth?'':'outside'} ${date===today?'today':''} ${date===selected?'selected':''}" data-day="${date}" aria-label="${date}, 일정 ${es.length}건"><span class="number">${d.getDate()}</span>${es.slice(0,3).map(e=>{const p=person(e.person);return `<span class="event-pill" style="background:${p.bg};color:${p.color}">${esc(e.title)}</span>`}).join('')}${es.length>3?`<span class="text-[10px] muted block mt-1 pl-1">+${es.length-3}건</span>`:''}</button>`;
+    }
+    $('calendar').innerHTML=html;document.querySelectorAll('[data-day]').forEach(x=>x.onclick=()=>{selected=x.dataset.day;const d=parseDate(selected);if(d.getFullYear()!==view.getFullYear()||d.getMonth()!==view.getMonth())view=d;renderCalendar();renderSide()});
+    $('legend').innerHTML=PEOPLE.map(p=>`<span class="inline-flex gap-1 items-center"><span class="dot" style="background:${p.color}"></span>${p.name}</span>`).join('');
+  }
+  function eventHTML(e,datePrefix=false){const p=person(e.person);return `<button class="event-row" data-event="${esc(e.id)}"><span class="dot" style="background:${p.color};width:11px;height:11px"></span><span style="min-width:0;flex:1"><span class="block text-sm font-bold truncate">${esc(e.title)}</span><span class="block text-xs text-slate-400 mt-1">${datePrefix?esc(dateLabel(e.date))+' · ':''}${esc(p.name)} · ${e.allDay?'종일':esc(e.start||'시간 미정')}${e.endDate>e.date?' · 여러 날':''}</span></span><span class="text-slate-300">›</span></button>`}
+  function bindEventRows(){document.querySelectorAll('[data-event]').forEach(x=>x.onclick=()=>openEvent(x.dataset.event))}
+  function renderSide(){$('selectedTitle').textContent=dateLabel(selected,true);const es=ordered(filtered().filter(e=>e.date<=selected&&e.endDate>=selected));$('selectedEvents').innerHTML=es.length?es.map(e=>eventHTML(e)).join(''):'<div class="empty">등록된 일정이 없습니다.<br>일정을 추가해 보세요.</div>';
+    const end=addDays(today,30);const upcoming=ordered(filtered().filter(e=>e.endDate>=today&&e.date<=end)).slice(0,8);$('upcomingEvents').innerHTML=upcoming.length?upcoming.map(e=>eventHTML(e,true)).join(''):'<div class="empty">다가오는 일정이 없습니다.</div>';bindEventRows();renderQt()}
+  function renderQt(){const q=state.qt[selected]||{};$('qtDate').textContent=dateLabel(selected,true);$('qtRef').textContent=q.ref||'본문 미등록';$('qtVerse').textContent=q.verse||'오늘의 말씀을 입력해 보세요.';$('qtReflection').textContent=q.reflection||'묵상과 기도를 기록할 수 있습니다.'}
+  function render(){renderSummary();renderTabs();renderCalendar();renderSide()}
+  function openEvent(id){const e=state.events.find(x=>x.id===id);$('eventId').value=e?.id||'';$('eventModalTitle').textContent=e?'일정 수정':'새 일정 추가';$('eventName').value=e?.title||'';$('eventPerson').value=e?.person||(filter==='all'?'family':filter);$('eventDate').value=e?.date||selected;$('eventEndDate').value=e?.endDate||selected;$('allDay').checked=e?.allDay??true;$('startTime').value=e?.start||'09:00';$('endTime').value=e?.end||'10:00';$('eventMemo').value=e?.memo||'';$('deleteEvent').style.display=e?'block':'none';toggleTime();showModal('eventModal',true);$('eventName').focus()}
+  function toggleTime(){$('timeFields').hidden=$('allDay').checked;$('timeFields').style.display=$('allDay').checked?'none':'grid'}
+  function saveEvent(ev){ev.preventDefault();const id=$('eventId').value;const e={id:id||((crypto?.randomUUID?.()||('evt-'+Date.now()+'-'+Math.random()))),title:$('eventName').value.trim(),person:$('eventPerson').value,date:$('eventDate').value,endDate:$('eventEndDate').value,allDay:$('allDay').checked,start:$('startTime').value,end:$('endTime').value,memo:$('eventMemo').value.trim()};
+    if(!e.title||!e.date||!e.endDate){toast('이름과 날짜를 입력해 주세요.');return}if(e.endDate<e.date){toast('종료 날짜는 시작 날짜 이후여야 합니다.');return}if(!e.allDay&&e.date===e.endDate&&e.end<=e.start){toast('종료 시간은 시작 시간 이후여야 합니다.');return}
+    if(id){state.events=state.events.map(x=>x.id===id?e:x)}else{state.events.push(e)}selected=e.date;view=parseDate(selected);persist();showModal('eventModal',false);render();toast(id?'일정이 수정되었습니다.':'일정이 추가되었습니다.')}
+  function openQt(){const q=state.qt[selected]||{};$('qtInputDate').value=selected;$('qtInputRef').value=q.ref||'';$('qtInputVerse').value=q.verse||'';$('qtInputReflection').value=q.reflection||'';showModal('qtModal',true)}
+  function saveQt(ev){ev.preventDefault();const date=$('qtInputDate').value;if(!date)return;state.qt[date]={ref:$('qtInputRef').value.trim(),verse:$('qtInputVerse').value.trim(),reflection:$('qtInputReflection').value.trim()};selected=date;view=parseDate(date);persist();showModal('qtModal',false);render();toast('큐티 말씀이 저장되었습니다.')}
+  function download(name,content,type){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)}
+  function icsEscape(x){return String(x||'').replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;')}
+  function utcTimestamp(date,hm){const [y,m,d]=date.split('-').map(Number),[h,min]=hm.split(':').map(Number);return new Date(y,m-1,d,h,min).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'')}
+  function exportICS(){const es=filtered();if(!es.length){toast('내보낼 일정이 없습니다.');return}const now=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//FamilyDashboard//KR','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:우리 가족 일정'];
+    for(const e of es){const p=person(e.person);lines.push('BEGIN:VEVENT','UID:'+String(e.id).replace(/[^a-zA-Z0-9-]/g,'')+'@family-dashboard.local','DTSTAMP:'+now,'SUMMARY:'+icsEscape('['+p.name+'] '+e.title));if(e.memo)lines.push('DESCRIPTION:'+icsEscape(e.memo));if(e.allDay){lines.push('DTSTART;VALUE=DATE:'+e.date.replace(/-/g,''),'DTEND;VALUE=DATE:'+addDays(e.endDate,1).replace(/-/g,''))}else{lines.push('DTSTART:'+utcTimestamp(e.date,e.start||'09:00'),'DTEND:'+utcTimestamp(e.endDate,e.end||'10:00'))}lines.push('END:VEVENT')}
+    lines.push('END:VCALENDAR');download('우리집_가족일정_'+today+'.ics',lines.join('\r\n')+'\r\n','text/calendar;charset=utf-8');toast('ICS 파일을 저장했습니다. 가져오기는 자동 동기화가 아닙니다.')}
+  function backup(){download('가족대시보드_백업_'+today+'.json',JSON.stringify({version:1,exportedAt:new Date().toISOString(),...state},null,2),'application/json');toast('백업 파일을 저장했습니다.')}
+  async function restore(file){if(!file)return;try{const s=JSON.parse(await file.text());if(!Array.isArray(s.events)||!s.qt||typeof s.qt!=='object')throw Error('invalid');if(!confirm('현재 저장된 일정과 큐티를 백업 파일의 내용으로 교체할까요?'))return;state={events:s.events.filter(e=>e&&typeof e.id==='string'&&typeof e.title==='string'&&PEOPLE.some(p=>p.id===e.person)&&/^\d{4}-\d{2}-\d{2}$/.test(e.date)&&/^\d{4}-\d{2}-\d{2}$/.test(e.endDate)),qt:s.qt};persist();render();toast('백업을 복원했습니다.')}catch{toast('유효한 백업 JSON 파일이 아닙니다.')}finally{$('restoreFile').value=''}}
+  $('todayLabel').textContent='오늘 '+dateLabel(today,true)+' · 가족의 소중한 하루를 함께 기록해요';
+  $('eventPerson').innerHTML=PEOPLE.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  $('prevMonth').onclick=()=>{view=new Date(view.getFullYear(),view.getMonth()-1,1);renderCalendar()};$('nextMonth').onclick=()=>{view=new Date(view.getFullYear(),view.getMonth()+1,1);renderCalendar()};$('goToday').onclick=()=>{selected=today;view=parseDate(today);renderCalendar();renderSide()};
+  $('addBtn').onclick=()=>openEvent();$('addSelected').onclick=()=>openEvent();$('eventForm').onsubmit=saveEvent;$('allDay').onchange=toggleTime;
+  $('closeEvent').onclick=$('cancelEvent').onclick=()=>showModal('eventModal',false);
+  $('deleteEvent').onclick=()=>{const id=$('eventId').value;if(!id||!confirm('이 일정을 삭제할까요?'))return;state.events=state.events.filter(e=>e.id!==id);persist();showModal('eventModal',false);render();toast('일정이 삭제되었습니다.')};
+  $('editQt').onclick=openQt;$('qtForm').onsubmit=saveQt;$('closeQt').onclick=$('cancelQt').onclick=()=>showModal('qtModal',false);
+  $('exportIcs').onclick=exportICS;$('backupBtn').onclick=backup;$('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=e=>restore(e.target.files[0]);
+  ['eventModal','qtModal'].forEach(id=>$(id).addEventListener('mousedown',e=>{if(e.target===$(id))showModal(id,false)}));document.addEventListener('keydown',e=>{if(e.key==='Escape'){showModal('eventModal',false);showModal('qtModal',false)}});
+  render();
+})();
+</script>
+</body>
+</html>
